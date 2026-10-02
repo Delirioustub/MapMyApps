@@ -41,7 +41,7 @@
 <body>
   <div id="map"></div>
   <div class="top">
-    <div class="brand">Map<span>My</span>Apps v3</div>
+    <div class="brand">Map<span>My</span>Apps v4</div>
     <select id="tripFilter" class="chip" aria-label="Trip"></select>
     <button id="addBtn" class="iconbtn" aria-label="Add place">+</button>
   </div>
@@ -53,8 +53,8 @@
         <div class="muted" id="sheetCount">No places yet</div>
       </div>
       <div class="actions">
+        <button id="pasteBtn" class="primary">Paste</button>
         <button id="routeBtn" class="ghost">Route</button>
-        <button id="helpBtn" class="ghost">Share</button>
       </div>
     </div>
     <div id="list"></div>
@@ -70,16 +70,8 @@
       <textarea id="note" rows="2" placeholder="Why you saved it"></textarea>
       <label for="tripName">List</label>
       <input id="tripName" value="Someday" />
-      <div class="row" style="margin-top:12px"><button type="button" id="exportBtn" class="ghost">Export</button><button class="primary" type="submit">Save pin</button></div>
+      <div class="row" style="margin-top:12px"><button class="primary" type="submit">Save pin</button></div>
     </form>
-  </div>
-  <div id="help" class="modal hidden">
-    <div class="card">
-      <div class="row"><h1>Share sheet</h1><button id="closeHelp" class="ghost">Close</button></div>
-      <p class="muted">Name a Shortcut MapMyApps and turn on Show in Share Sheet. It will appear when you share a post.</p>
-      <button id="importBtn" class="ghost">Import backup</button>
-      <input id="importFile" type="file" accept="application/json" class="hidden" />
-    </div>
   </div>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
@@ -90,7 +82,6 @@
     L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "OpenStreetMap", maxZoom: 19 }).addTo(map);
     L.control.zoom({ position: "bottomright" }).addTo(map);
     let layer = L.layerGroup().addTo(map);
-    let routeLine = null;
     let picked = null;
     function load() {
       try { return JSON.parse(localStorage.getItem(KEY)) || { places: [], trips: ["Someday"] }; }
@@ -125,7 +116,7 @@
       renderTrips();
       const items = visible();
       document.getElementById("sheetTitle").textContent = document.getElementById("tripFilter").value;
-      document.getElementById("sheetCount").textContent = items.length ? items.length + " places" : "No places yet";
+      document.getElementById("sheetCount").textContent = items.length ? items.length + " places" : "Copy a link, then Paste";
       layer.clearLayers();
       items.forEach(p => {
         const marker = L.circleMarker([p.lat, p.lng], { radius: 8, color: "#e2a54a", fillColor: "#e2a54a", fillOpacity: 0.95, weight: 2 });
@@ -137,7 +128,7 @@
         "<div class=\"place\"><button data-focus=\"" + p.id + "\"><strong>" + escapeHtml(p.name) + "</strong><div class=\"muted\">" + escapeHtml(p.address || "") + "</div></button><div class=\"actions\">" +
         (p.source ? "<a href=\"" + p.source + "\" target=\"_blank\" rel=\"noopener\">Post</a>" : "") +
         "<a href=\"" + navUrl(p) + "\">Go</a><button data-del=\"" + p.id + "\">Del</button></div></div>"
-      ).join("") || "<p class=\"muted\">Tap + and search a place.</p>";
+      ).join("") || "<p class=\"muted\">Copy a post link, come back here, tap Paste.</p>";
     }
     async function searchPlaces(q) {
       const res = await fetch("https://photon.komoot.io/api/?q=" + encodeURIComponent(q) + "&limit=5");
@@ -159,10 +150,9 @@
       document.getElementById("form").dataset.source = prefill.source || "";
       document.getElementById("results").innerHTML = "";
     }
-    let timer = null;
     document.getElementById("query").addEventListener("input", () => {
-      clearTimeout(timer);
-      timer = setTimeout(async () => {
+      clearTimeout(window.__t);
+      window.__t = setTimeout(async () => {
         const q = document.getElementById("query").value.trim();
         const box = document.getElementById("results");
         if (q.length < 2) { box.innerHTML = ""; return; }
@@ -189,11 +179,19 @@
       if (!state.trips.includes(trip)) state.trips.push(trip);
       save();
       document.getElementById("modal").classList.add("hidden");
-      history.replaceState({}, "", location.pathname);
       render();
     });
     document.getElementById("closeModal").onclick = () => document.getElementById("modal").classList.add("hidden");
     document.getElementById("addBtn").onclick = () => openModal({});
+    document.getElementById("pasteBtn").onclick = async () => {
+      let raw = "";
+      try { raw = await navigator.clipboard.readText(); } catch (e) { raw = ""; }
+      if (!raw) { alert("Copy the post link first, then tap Paste."); return; }
+      const urlMatch = raw.match(/https?:\/\/\S+/);
+      const source = urlMatch ? urlMatch[0] : raw;
+      const name = raw.replace(source, "").replace(/https?:\/\/\S+/g, "").trim();
+      openModal({ source, name });
+    };
     document.getElementById("tripFilter").onchange = render;
     document.getElementById("list").onclick = (e) => {
       const del = e.target.closest("[data-del]");
@@ -208,35 +206,7 @@
       const stops = items.slice(0, -1).map(p => p.lat + "," + p.lng).join("+to:");
       location.href = "https://maps.apple.com/?saddr=Current+Location&daddr=" + (stops ? stops + "+to:" : "") + last.lat + "," + last.lng + "&dirflg=d";
     };
-    document.getElementById("helpBtn").onclick = () => document.getElementById("help").classList.remove("hidden");
-    document.getElementById("closeHelp").onclick = () => document.getElementById("help").classList.add("hidden");
-    document.getElementById("exportBtn").onclick = () => {
-      const a = document.createElement("a");
-      a.href = URL.createObjectURL(new Blob([JSON.stringify(state)], { type: "application/json" }));
-      a.download = "mapmyapps-backup.json";
-      a.click();
-    };
-    document.getElementById("importBtn").onclick = () => document.getElementById("importFile").click();
-    document.getElementById("importFile").onchange = async (e) => {
-      const file = e.target.files[0];
-      if (!file) return;
-      const incoming = JSON.parse(await file.text());
-      state.places = incoming.places || [];
-      state.trips = incoming.trips || ["Someday"];
-      save(); render();
-      document.getElementById("help").classList.add("hidden");
-    };
-    function incomingShare() {
-      const params = new URLSearchParams(location.search);
-      const raw = params.get("add") || params.get("text") || "";
-      if (!raw) return;
-      const urlMatch = raw.match(/https?:\/\/\S+/);
-      const source = urlMatch ? urlMatch[0] : raw;
-      const name = raw.replace(source, "").replace(/https?:\/\/\S+/g, "").trim();
-      openModal({ source, name });
-    }
     render();
-    incomingShare();
   </script>
 </body>
 </html>

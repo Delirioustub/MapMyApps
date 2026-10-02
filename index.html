@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="theme-color" content="#12140f" />
+  <title>MapMyApps</title>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <style>
+    :root {
+      --bg: #12140f;
+      --panel: #1c1f18;
+      --line: #31362b;
+      --text: #f3f1e7;
+      --muted: #a7ab9c;
+      --accent: #e2a54a;
+      --accent-ink: #1a1408;
+      --danger: #d46a5c;
+      --ok: #8fb56a;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; }
+    #map { position: fixed; inset: 0; }
+    .top {
+      position: fixed; top: env(safe-area-inset-top); left: 0; right: 0; z-index: 500;
+      display: flex; gap: 8px; align-items: center; padding: 10px 12px 0;
+    }
+    .brand, .chip, .iconbtn {
+      background: rgba(18, 20, 15, 0.92); border: 1px solid var(--line); color: var(--text);
+      border-radius: 999px; backdrop-filter: blur(8px);
+    }
+    .brand { padding: 8px 12px; font-weight: 700; letter-spacing: 0.01em; }
+    .brand span { color: var(--accent); }
+    .chip, .iconbtn { padding: 8px 12px; font: inherit; }
+    select.chip { max-width: 46vw; }
+    .iconbtn { width: 40px; height: 40px; padding: 0; }
+    .sheet {
+      position: fixed; left: 0; right: 0; bottom: 0; z-index: 600;
+      background: var(--panel); border-top: 1px solid var(--line);
+      border-radius: 18px 18px 0 0; padding: 8px 14px calc(14px + env(safe-area-inset-bottom));
+      max-height: 46vh; overflow: auto;
+    }
+    .grab { width: 42px; height: 4px; border-radius: 4px; background: var(--line); margin: 2px auto 10px; }
+    .row { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
+    h1 { font-size: 18px; margin: 0; }
+    .muted { color: var(--muted); font-size: 13px; }
+    .place {
+      display: flex; justify-content: space-between; gap: 8px; align-items: center;
+      padding: 10px 0; border-top: 1px solid var(--line);
+    }
+    .place button { font: inherit; color: inherit; background: none; border: 0; text-align: left; padding: 0; }
+    .actions { display: flex; gap: 6px; }
+    .actions a, .actions button, .primary, .ghost {
+      font: inherit; border-radius: 10px; padding: 8px 10px; text-decoration: none; border: 1px solid var(--line); color: var(--text); background: #262a20;
+    }
+    .primary { background: var(--accent); color: var(--accent-ink); border-color: transparent; font-weight: 700; }
+    .ghost { background: transparent; }
+    .modal {
+      position: fixed; inset: 0; z-index: 800; background: rgba(0,0,0,.55);
+      display: flex; align-items: flex-end; justify-content: center;
+    }
+    .card {
+      width: min(560px, 100%); background: var(--panel); border-radius: 18px 18px 0 0;
+      padding: 16px 16px calc(16px + env(safe-area-inset-bottom)); border-top: 1px solid var(--line);
+    }
+    label { display: block; font-size: 12px; color: var(--muted); margin: 10px 0 4px; }
+    input, textarea {
+      width: 100%; font: inherit; color: var(--text); background: #12140f; border: 1px solid var(--line);
+      border-radius: 10px; padding: 10px;
+    }
+    .results button { display: block; width: 100%; text-align: left; margin-top: 6px; }
+    .hidden { display: none !important; }
+    .leaflet-control-attribution { font-size: 10px; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+  <div class="top">
+    <div class="brand">Map<span>My</span>Apps</div>
+    <select id="tripFilter" class="chip" aria-label="Trip"></select>
+    <button id="addBtn" class="iconbtn" aria-label="Add place">+</button>
+  </div>
+  <section class="sheet">
+    <div class="grab"></div>
+    <div class="row">
+      <div>
+        <h1 id="sheetTitle">Someday</h1>
+        <div class="muted" id="sheetCount">No places yet</div>
+      </div>
+      <div class="actions">
+        <button id="routeBtn" class="ghost">Route</button>
+        <button id="helpBtn" class="ghost">Share</button>
+      </div>
+    </div>
+    <div id="list"></div>
+  </section>
+
+  <div id="modal" class="modal hidden">
+    <form class="card" id="form">
+      <div class="row">
+        <h1 id="modalTitle">Save a place</h1>
+        <button type="button" id="closeModal" class="ghost">Close</button>
+      </div>
+      <p class="muted" id="sourceLine"></p>
+      <label for="query">Place</label>
+      <input id="query" placeholder="Search a restaurant, park, town" autocomplete="off" />
+      <div id="results" class="results"></div>
+      <label for="note">Note</label>
+      <textarea id="note" rows="2" placeholder="Why you saved it"></textarea>
+      <label for="tripName">List</label>
+      <input id="tripName" value="Someday" />
+      <div class="row" style="margin-top:12px">
+        <button type="button" id="exportBtn" class="ghost">Export</button>
+        <button class="primary" type="submit">Save pin</button>
+      </div>
+    </form>
+  </div>
+
+  <div id="help" class="modal hidden">
+    <div class="card">
+      <div class="row"><h1>Share sheet</h1><button id="closeHelp" class="ghost">Close</button></div>
+      <p class="muted">A website cannot register its own icon in Instagram’s share sheet. A Shortcut named MapMyApps can, and that is this personal version.</p>
+      <ol class="muted">
+        <li>Open Shortcuts and make a new shortcut.</li>
+        <li>Turn on Show in Share Sheet. Accept URLs, Safari web pages, and text.</li>
+        <li>Add Open URLs. URL is this page plus <code>?add=</code> and the Shortcut Input.</li>
+        <li>Share a Reel or pin. Tap MapMyApps. Confirm the place. It lands on your map.</li>
+      </ol>
+      <p class="muted">Navigate opens Apple Maps from your current location. Places stay on this phone.</p>
+      <button id="importBtn" class="ghost">Import backup</button>
+      <input id="importFile" type="file" accept="application/json" class="hidden" />
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    const KEY = "mapmyapps.v1";
+    const home = [35.7826, -80.8873];
+    const state = load();
+    const map = L.map("map", { zoomControl: false }).setView(home, 11);
+    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
+      attribution: "&copy; OSM &copy; CARTO",
+      maxZoom: 19
+    }).addTo(map);
+    L.control.zoom({ position: "bottomright" }).addTo(map);
+    let layer = L.layerGroup().addTo(map);
+    let routeLine = null;
+    let picked = null;
+
+    function load() {
+      try { return JSON.parse(localStorage.getItem(KEY)) || { places: [], trips: ["Someday"] }; }
+      catch { return { places: [], trips: ["Someday"] }; }
+    }
+    function save() { localStorage.setItem(KEY, JSON.stringify(state)); }
+    function uid() { return Math.random().toString(36).slice(2, 9); }
+
+    function trips() {
+      const names = new Set(["Someday", ...state.trips, ...state.places.map(p => p.trip || "Someday")]);
+      state.trips = [...names];
+      return state.trips;
+    }
+
+    function renderTrips() {
+      const sel = document.getElementById("tripFilter");
+      const current = sel.value || "All";
+      sel.innerHTML = `<option>All</option>` + trips().map(t => `<option>${t}</option>`).join("");
+      sel.value = [...sel.options].some(o => o.value === current) ? current : "All";
+    }
+
+    function visible() {
+      const trip = document.getElementById("tripFilter").value;
+      return state.places.filter(p => trip === "All" || (p.trip || "Someday") === trip);
+    }
+
+    function render() {
+      renderTrips();
+      const items = visible();
+      document.getElementById("sheetTitle").textContent = document.getElementById("tripFilter").value;
+      document.getElementById("sheetCount").textContent = items.length ? `${items.length} place${items.length === 1 ? "" : "s"}` : "No places yet";
+      layer.clearLayers();
+      items.forEach(p => {
+        const marker = L.circleMarker([p.lat, p.lng], { radius: 8, color: "#e2a54a", fillColor: "#e2a54a", fillOpacity: 0.9, weight: 2 });
+        marker.bindPopup(`<b>${escapeHtml(p.name)}</b><br>${escapeHtml(p.address || "")}`);
+        marker.on("click", () => map.panTo([p.lat, p.lng]));
+        marker.addTo(layer);
+      });
+      if (items.length) map.fitBounds(L.latLngBounds(items.map(p => [p.lat, p.lng])).pad(0.3));
+      document.getElementById("list").innerHTML = items.map(p => `
+        <div class="place">
+          <button data-focus="${p.id}"><strong>${escapeHtml(p.name)}</strong><div class="muted">${escapeHtml(p.address || p.trip || "")}</div></button>
+          <div class="actions">
+            ${p.source ? `<a href="${escapeAttr(p.source)}" target="_blank" rel="noopener">Post</a>` : ""}
+            <a href="${navUrl(p)}">Go</a>
+            <button data-del="${p.id}">Del</button>
+          </div>
+        </div>`).join("") || `<p class="muted">Share a post here, or tap + and search a place.</p>`;
+    }
+
+    function escapeHtml(s) { return String(s).replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;" }[c])); }
+    function escapeAttr(s) { return escapeHtml(s); }
+    function navUrl(p) {
+      const name = encodeURIComponent(p.name);
+      return `https://maps.apple.com/directions?destination=${p.lat},${p.lng}&name=${name}&mode=driving`;
+    }
+
+    async function searchPlaces(q) {
+      const url = `https://photon.komoot.io/api/?q=${encodeURIComponent(q)}&limit=5`;
+      const res = await fetch(url);
+      const data = await res.json();
+      return (data.features || []).map(f => ({
+        name: f.properties.name || q,
+        address: [f.properties.street, f.properties.city, f.properties.state, f.properties.country].filter(Boolean).join(", "),
+        lat: f.geometry.coordinates[1],
+        lng: f.geometry.coordinates[0]
+      }));
+    }
+
+    function openModal(prefill) {
+      picked = null;
+      document.getElementById("modal").classList.remove("hidden");
+      document.getElementById("query").value = prefill.name || "";
+      document.getElementById("note").value = "";
+      document.getElementById("tripName").value = document.getElementById("tripFilter").value === "All" ? "Someday" : document.getElementById("tripFilter").value;
+      document.getElementById("sourceLine").textContent = prefill.source ? prefill.source : "Search to drop a pin.";
+      document.getElementById("form").dataset.source = prefill.source || "";
+      document.getElementById("results").innerHTML = "";
+      if (prefill.name) runSearch();
+    }
+
+    let timer = null;
+    async function runSearch() {
+      const q = document.getElementById("query").value.trim();
+      const box = document.getElementById("results");
+      if (q.length < 2) { box.innerHTML = ""; return; }
+      box.innerHTML = `<p class="muted">Searching…</p>`;
+      try {
+        const hits = await searchPlaces(q);
+        box.innerHTML = hits.map((h, i) => `<button type="button" data-hit="${i}">${escapeHtml(h.name)}<div class="muted">${escapeHtml(h.address)}</div></button>`).join("") || `<p class="muted">No match. Try city plus place.</p>`;
+        box._hits = hits;
+      } catch {
+        box.innerHTML = `<p class="muted">Search failed. Check the connection and try again.</p>`;
+      }
+    }
+
+    document.getElementById("query").addEventListener("input", () => {
+      clearTimeout(timer);
+      timer = setTimeout(runSearch, 250);
+    });
+    document.getElementById("results").addEventListener("click", (e) => {
+      const btn = e.target.closest("[data-hit]");
+      if (!btn) return;
+      picked = document.getElementById("results")._hits[Number(btn.dataset.hit)];
+      document.getElementById("query").value = picked.name;
+      document.getElementById("results").innerHTML = `<p class="muted">Pinned: ${escapeHtml(picked.address)}</p>`;
+    });
+    document.getElementById("form").addEventListener("submit", (e) => {
+      e.preventDefault();
+      if (!picked) { alert("Pick a search result so the pin has a location."); return; }
+      const trip = document.getElementById("tripName").value.trim() || "Someday";
+      state.places.push({
+        id: uid(),
+        name: picked.name,
+        address: picked.address,
+        lat: picked.lat,
+        lng: picked.lng,
+        note: document.getElementById("note").value.trim(),
+        trip,
+        source: document.getElementById("form").dataset.source || "",
+        created: Date.now()
+      });
+      if (!state.trips.includes(trip)) state.trips.push(trip);
+      save();
+      document.getElementById("modal").classList.add("hidden");
+      history.replaceState({}, "", location.pathname);
+      render();
+    });
+    document.getElementById("closeModal").onclick = () => document.getElementById("modal").classList.add("hidden");
+    document.getElementById("addBtn").onclick = () => openModal({});
+    document.getElementById("tripFilter").onchange = render;
+    document.getElementById("list").onclick = (e) => {
+      const del = e.target.closest("[data-del]");
+      const focus = e.target.closest("[data-focus]");
+      if (del) {
+        state.places = state.places.filter(p => p.id !== del.dataset.del);
+        save(); render();
+      }
+      if (focus) {
+        const p = state.places.find(x => x.id === focus.dataset.focus);
+        if (p) map.setView([p.lat, p.lng], 14);
+      }
+    };
+    document.getElementById("routeBtn").onclick = async () => {
+      const items = visible();
+      if (items.length < 2) { alert("Add at least two places in this list."); return; }
+      const path = items.map(p => `${p.lng},${p.lat}`).join(";");
+      try {
+        const res = await fetch(`https://router.project-osrm.org/route/v1/driving/${path}?overview=full&geometries=geojson`);
+        const data = await res.json();
+        if (routeLine) map.removeLayer(routeLine);
+        routeLine = L.geoJSON(data.routes[0].geometry, { style: { color: "#e2a54a", weight: 4 } }).addTo(map);
+        const last = items[items.length - 1];
+        const stops = items.slice(0, -1).map(p => `${p.lat},${p.lng}`).join("+to:");
+        location.href = `https://maps.apple.com/?saddr=Current+Location&daddr=${stops}+to:${last.lat},${last.lng}&dirflg=d`;
+      } catch {
+        alert("Could not build the route. Use Go on a single place.");
+      }
+    };
+    document.getElementById("helpBtn").onclick = () => document.getElementById("help").classList.remove("hidden");
+    document.getElementById("closeHelp").onclick = () => document.getElementById("help").classList.add("hidden");
+    document.getElementById("exportBtn").onclick = () => {
+      const blob = new Blob([JSON.stringify(state, null, 2)], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = "mapmyapps-backup.json";
+      a.click();
+    };
+    document.getElementById("importBtn").onclick = () => document.getElementById("importFile").click();
+    document.getElementById("importFile").onchange = async (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const incoming = JSON.parse(await file.text());
+      state.places = incoming.places || [];
+      state.trips = incoming.trips || ["Someday"];
+      save(); render();
+      document.getElementById("help").classList.add("hidden");
+    };
+
+    function incomingShare() {
+      const params = new URLSearchParams(location.search);
+      const raw = params.get("add") || params.get("text") || "";
+      if (!raw) return;
+      const urlMatch = raw.match(/https?:\/\/\S+/);
+      const source = urlMatch ? urlMatch[0] : raw;
+      const name = raw.replace(source, "").replace(/https?:\/\/\S+/g, "").trim();
+      openModal({ source, name });
+    }
+
+    render();
+    incomingShare();
+  </script>
+</body>
+</html>

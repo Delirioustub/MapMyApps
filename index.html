@@ -72,7 +72,8 @@
     }
     .results button { display: block; width: 100%; text-align: left; margin-top: 6px; }
     .hidden { display: none !important; }
-    .leaflet-control-attribution { font-size: 10px; }
+    .leaflet-tile-pane { filter: invert(1) hue-rotate(180deg) brightness(0.85) contrast(0.95); }
+    .leaflet-control-attribution { font-size: 10px; background: rgba(18, 20, 15, 0.8); color: #a7ab9c; }
   </style>
 </head>
 <body>
@@ -140,8 +141,8 @@
     const home = [35.7826, -80.8873];
     const state = load();
     const map = L.map("map", { zoomControl: false }).setView(home, 11);
-    L.tileLayer("https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png", {
-      attribution: "&copy; OSM &copy; CARTO",
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      attribution: "&copy; OpenStreetMap",
       maxZoom: 19
     }).addTo(map);
     L.control.zoom({ position: "bottomright" }).addTo(map);
@@ -198,7 +199,7 @@
         </div>`).join("") || `<p class="muted">Share a post here, or tap + and search a place.</p>`;
     }
 
-    function escapeHtml(s) { return String(s).replace(/[&<>"]/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;" }[c])); }
+    function escapeHtml(s) { return String(s).replace(/[&<>"]/g, c => ({ "&":"&","<":"<",">":">","\"":""" }[c])); }
     function escapeAttr(s) { return escapeHtml(s); }
     function navUrl(p) {
       const name = encodeURIComponent(p.name);

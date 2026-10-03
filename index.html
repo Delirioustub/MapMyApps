@@ -11,28 +11,25 @@
     :root { --bg:#12140f; --panel:#1c1f18; --line:#31362b; --text:#f3f1e7; --muted:#a7ab9c; --accent:#e2a54a; --ink:#1a1408; }
     * { box-sizing: border-box; }
     html, body { margin:0; min-height:100%; background:var(--bg); color:var(--text); font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
-    header { position:sticky; top:0; z-index:5; background:rgba(18,20,15,.94); padding:calc(12px + env(safe-area-inset-top)) 14px 12px; border-bottom:1px solid var(--line); }
+    header { position:sticky; top:0; z-index:5; background:rgba(18,20,15,.96); padding:calc(12px + env(safe-area-inset-top)) 14px 12px; border-bottom:1px solid var(--line); }
     .row { display:flex; justify-content:space-between; gap:8px; align-items:center; }
     h1 { font-size:22px; margin:0; }
     h1 span { color:var(--accent); }
     .muted { color:var(--muted); font-size:13px; }
-    .tools { display:flex; gap:8px; margin-top:12px; }
-    select, button, a.btn { font:inherit; color:var(--text); background:#262a20; border:1px solid var(--line); border-radius:12px; padding:10px 12px; text-decoration:none; }
-    select { flex:1; }
+    button, a.btn, select { font:inherit; color:var(--text); background:#262a20; border:1px solid var(--line); border-radius:12px; padding:10px 12px; text-decoration:none; }
     .primary { background:var(--accent); color:var(--ink); border-color:transparent; font-weight:700; }
-    main { padding:8px 14px calc(24px + env(safe-area-inset-bottom)); }
-    .place { background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:14px; margin-top:10px; }
-    .place h2 { font-size:17px; margin:0 0 4px; }
+    main { padding:14px 14px calc(28px + env(safe-area-inset-bottom)); }
+    textarea { width:100%; min-height:88px; font:inherit; color:var(--text); background:#1c1f18; border:1px solid var(--line); border-radius:14px; padding:12px; }
+    .tools { display:flex; gap:8px; margin-top:8px; }
+    select { flex:1; }
+    .hit, .place { background:var(--panel); border:1px solid var(--line); border-radius:16px; padding:14px; margin-top:10px; }
+    .hit { width:100%; text-align:left; }
+    h2 { font-size:17px; margin:0 0 4px; }
     .meta { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
-    .modal, #mapScreen { position:fixed; inset:0; z-index:20; background:rgba(0,0,0,.55); display:flex; align-items:flex-end; }
-    #mapScreen { display:block; background:#cfcaba; }
-    .card { width:min(560px,100%); background:var(--panel); border-radius:18px 18px 0 0; padding:16px 16px calc(16px + env(safe-area-inset-bottom)); }
-    label { display:block; font-size:12px; color:var(--muted); margin:10px 0 4px; }
-    input, textarea { width:100%; font:inherit; color:var(--text); background:#12140f; border:1px solid var(--line); border-radius:10px; padding:10px; }
-    .results button { display:block; width:100%; text-align:left; margin-top:6px; }
-    .hidden { display:none !important; }
+    #mapScreen { position:fixed; inset:0; z-index:20; background:#cfcaba; }
     #map { position:absolute; inset:0; }
-    .mapbar { position:absolute; top:calc(10px + env(safe-area-inset-top)); left:12px; right:12px; z-index:500; display:flex; gap:8px; }
+    .mapbar { position:absolute; top:calc(10px + env(safe-area-inset-top)); left:12px; z-index:500; }
+    .hidden { display:none !important; }
   </style>
 </head>
 <body>
@@ -42,42 +39,29 @@
         <h1>Map<span>My</span>Apps</h1>
         <div class="muted" id="count">Your places</div>
       </div>
-      <button id="mapBtn">Map</button>
-    </div>
-    <div class="tools">
-      <select id="tripFilter" aria-label="List"></select>
-      <button id="pasteBtn" class="primary">Paste</button>
-      <button id="addBtn">Add</button>
+      <button id="mapBtn" type="button">Map</button>
     </div>
   </header>
-  <main id="list"></main>
-  <div id="modal" class="modal hidden">
-    <form class="card" id="form">
-      <div class="row"><h1>Save a place</h1><button type="button" id="closeModal">Close</button></div>
-      <p class="muted" id="sourceLine"></p>
-      <label for="query">Place</label>
-      <input id="query" placeholder="Search a restaurant, park, town" autocomplete="off" />
-      <div id="results" class="results"></div>
-      <label for="note">Note</label>
-      <textarea id="note" rows="2" placeholder="Why you saved it"></textarea>
-      <label for="tripName">List</label>
-      <input id="tripName" value="Someday" />
-      <div class="row" style="margin-top:12px"><button class="primary" type="submit">Save</button></div>
-    </form>
-  </div>
+  <main>
+    <p class="muted">Copy the caption, not just the link. Paste it here. Tap the place.</p>
+    <textarea id="blob" placeholder="Paste the caption. Include the place name."></textarea>
+    <div class="tools">
+      <select id="tripFilter" aria-label="List"></select>
+      <button id="findBtn" class="primary" type="button">Find place</button>
+    </div>
+    <div id="hits"></div>
+    <div id="list"></div>
+  </main>
   <div id="mapScreen" class="hidden">
     <div id="map"></div>
-    <div class="mapbar">
-      <button id="closeMap" type="button">Back to list</button>
-      <button id="routeBtn" type="button">Route</button>
-    </div>
+    <div class="mapbar"><button id="closeMap" type="button">Back to list</button></div>
   </div>
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
     const KEY = "mapmyapps.v1";
     const home = [35.7826, -80.8873];
     const state = load();
-    let map, layer, picked = null;
+    let map, layer;
     function load() {
       try { return JSON.parse(localStorage.getItem(KEY)) || { places: [], trips: ["Someday"] }; }
       catch { return { places: [], trips: ["Someday"] }; }
@@ -102,24 +86,33 @@
     }
     function renderTrips() {
       const sel = document.getElementById("tripFilter");
-      const current = sel.value || "All";
-      sel.innerHTML = "<option>All</option>" + trips().map(t => "<option>" + t + "</option>").join("");
-      sel.value = [...sel.options].some(o => o.value === current) ? current : "All";
+      const current = sel.value || "Someday";
+      sel.innerHTML = trips().map(t => "<option>" + t + "</option>").join("");
+      sel.value = [...sel.options].some(o => o.value === current) ? current : "Someday";
     }
     function render() {
       renderTrips();
       const items = visible();
       document.getElementById("count").textContent = items.length ? items.length + " saved" : "Nothing saved yet";
       document.getElementById("list").innerHTML = items.map(p =>
-        "<article class=\"place\"><h2>" + escapeHtml(p.name) + "</h2><div class=\"muted\">" + escapeHtml(p.address || "") + "</div>" +
-        (p.note ? "<div class=\"muted\">" + escapeHtml(p.note) + "</div>" : "") +
-        "<div class=\"muted\">" + escapeHtml(p.trip || "Someday") + "</div><div class=\"meta\">" +
-        (p.source ? "<a class=\"btn\" href=\"" + p.source + "\" target=\"_blank\" rel=\"noopener\">Post</a>" : "") +
-        "<a class=\"btn\" href=\"" + navUrl(p) + "\">Go</a><button data-del=\"" + p.id + "\">Remove</button></div></article>"
-      ).join("") || "<p class=\"muted\">Copy a post link, then tap Paste.</p>";
+        "<article class=\"place\"><h2>" + escapeHtml(p.name) + "</h2><div class=\"muted\">" + escapeHtml(p.address || "") + "</div><div class=\"meta\">" +
+        (p.source ? "<a class=\"btn\" href=\"" + p.source + "\">Post</a>" : "") +
+        "<a class=\"btn\" href=\"" + navUrl(p) + "\">Go</a><button data-del=\"" + p.id + "\" type=\"button\">Remove</button></div></article>"
+      ).join("");
+    }
+    function junk(s) {
+      return /instagram|facebook|pinterest|reel|pin on|watch on/i.test(s) && s.length < 40;
+    }
+    function queries(text) {
+      const url = (text.match(/https?:\/\/\S+/) || [""])[0];
+      const words = text.replace(/https?:\/\/\S+/g, " ").replace(/[@#][\w.]+/g, " ");
+      const bits = words.split(/[\n.!?|]/).map(s => s.replace(/\s+/g, " ").trim()).filter(s => s.length > 2 && s.length < 80 && !junk(s));
+      const ranked = bits.sort((a, b) => b.length - a.length).slice(0, 3);
+      if (!ranked.length && words.trim() && !junk(words)) ranked.push(words.trim().slice(0, 80));
+      return { url, ranked };
     }
     async function searchPlaces(q) {
-      const res = await fetch("https://photon.komoot.io/api/?q=" + encodeURIComponent(q) + "&limit=5");
+      const res = await fetch("https://photon.komoot.io/api/?q=" + encodeURIComponent(q) + "&limit=3");
       const data = await res.json();
       return (data.features || []).map(f => ({
         name: f.properties.name || q,
@@ -128,99 +121,35 @@
         lng: f.geometry.coordinates[0]
       }));
     }
-    function openModal(prefill) {
-      picked = null;
-      document.getElementById("modal").classList.remove("hidden");
-      document.getElementById("query").value = prefill.name || "";
-      document.getElementById("note").value = "";
-      document.getElementById("tripName").value = document.getElementById("tripFilter").value === "All" ? "Someday" : document.getElementById("tripFilter").value;
-      document.getElementById("sourceLine").textContent = prefill.source || "Search the place, then save it to a list.";
-      document.getElementById("form").dataset.source = prefill.source || "";
-      document.getElementById("results").innerHTML = "";
+    async function find() {
+      const box = document.getElementById("hits");
+      const raw = document.getElementById("blob").value.trim();
+      if (!raw) { box.innerHTML = "<p class=\"muted\">Paste the caption first.</p>"; return; }
+      box.innerHTML = "<p class=\"muted\">Looking</p>";
+      const parsed = queries(raw);
+      let found = [];
+      for (const q of parsed.ranked) {
+        try { found = found.concat(await searchPlaces(q)); } catch (e) {}
+      }
+      const seen = new Set();
+      found = found.filter(h => { const k = h.name + h.address; if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, 5);
+      if (!found.length) { box.innerHTML = "<p class=\"muted\">No place in that text. Paste the line that names it.</p>"; return; }
+      box._hits = found;
+      box._source = parsed.url;
+      box.innerHTML = found.map((h, i) => "<button class=\"hit\" type=\"button\" data-hit=\"" + i + "\"><h2>" + escapeHtml(h.name) + "</h2><div class=\"muted\">" + escapeHtml(h.address) + "</div><div class=\"muted\">Tap to save</div></button>").join("");
     }
-    function ensureMap() {
-      if (map) return;
-      map = L.map("map", { zoomControl: false }).setView(home, 11);
-      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "OpenStreetMap", maxZoom: 19 }).addTo(map);
-      layer = L.layerGroup().addTo(map);
-    }
-    function showMap() {
-      const items = visible();
-      document.getElementById("mapScreen").classList.remove("hidden");
-      ensureMap();
-      setTimeout(() => map.invalidateSize(), 50);
-      layer.clearLayers();
-      items.forEach(p => L.circleMarker([p.lat, p.lng], { radius: 8, color: "#e2a54a", fillColor: "#e2a54a", fillOpacity: 0.95 }).bindPopup(escapeHtml(p.name)).addTo(layer));
-      if (items.length) map.fitBounds(L.latLngBounds(items.map(p => [p.lat, p.lng])).pad(0.3));
-    }
-    document.getElementById("query").addEventListener("input", () => {
-      clearTimeout(window.__t);
-      window.__t = setTimeout(async () => {
-        const q = document.getElementById("query").value.trim();
-        const box = document.getElementById("results");
-        if (q.length < 2) { box.innerHTML = ""; return; }
-        box.innerHTML = "<p class=\"muted\">Searching</p>";
-        try {
-          const hits = await searchPlaces(q);
-          box._hits = hits;
-          box.innerHTML = hits.map((h, i) => "<button type=\"button\" data-hit=\"" + i + "\">" + escapeHtml(h.name) + "<div class=\"muted\">" + escapeHtml(h.address) + "</div></button>").join("") || "<p class=\"muted\">No match. Add the city.</p>";
-        } catch { box.innerHTML = "<p class=\"muted\">Search failed.</p>"; }
-      }, 250);
-    });
-    document.getElementById("results").addEventListener("click", (e) => {
+    document.getElementById("findBtn").onclick = find;
+    document.getElementById("hits").onclick = (e) => {
       const btn = e.target.closest("[data-hit]");
       if (!btn) return;
-      picked = document.getElementById("results")._hits[Number(btn.dataset.hit)];
-      document.getElementById("query").value = picked.name;
-      document.getElementById("results").innerHTML = "<p class=\"muted\">Ready: " + escapeHtml(picked.address) + "</p>";
-    });
-    document.getElementById("form").addEventListener("submit", (e) => {
-      e.preventDefault();
-      if (!picked) { alert("Pick a search result."); return; }
-      const trip = document.getElementById("tripName").value.trim() || "Someday";
-      state.places.unshift({ id: uid(), name: picked.name, address: picked.address, lat: picked.lat, lng: picked.lng, note: document.getElementById("note").value.trim(), trip, source: document.getElementById("form").dataset.source || "", created: Date.now() });
-      if (!state.trips.includes(trip)) state.trips.push(trip);
+      const hit = document.getElementById("hits")._hits[Number(btn.dataset.hit)];
+      const trip = document.getElementById("tripFilter").value || "Someday";
+      state.places.unshift({ id: uid(), name: hit.name, address: hit.address, lat: hit.lat, lng: hit.lng, note: "", trip, source: document.getElementById("hits")._source || "", created: Date.now() });
       save();
-      document.getElementById("modal").classList.add("hidden");
+      document.getElementById("blob").value = "";
+      document.getElementById("hits").innerHTML = "<p class=\"muted\">Saved " + escapeHtml(hit.name) + "</p>";
       render();
-    });
-    document.getElementById("closeModal").onclick = () => document.getElementById("modal").classList.add("hidden");
-    document.getElementById("addBtn").onclick = () => openModal({});
-    async function readLink(url) {
-      const clean = (s) => String(s || "").replace(/https?:\S+/g, " ").replace(/[#@][\w.]+/g, " ").replace(/\s+/g, " ").trim();
-      try {
-        const res = await fetch("https://api.microlink.io/?url=" + encodeURIComponent(url));
-        const data = await res.json();
-        const title = clean(data.data && (data.data.title || data.data.description));
-        if (title) return title.split("|")[0].split(" - ")[0].slice(0, 80);
-      } catch (e) {}
-      return "";
-    }
-    document.getElementById("pasteBtn").onclick = async () => {
-      const btn = document.getElementById("pasteBtn");
-      btn.textContent = "Reading";
-      let raw = "";
-      try { raw = await navigator.clipboard.readText(); } catch (e) { raw = ""; }
-      if (!raw) { btn.textContent = "Paste"; alert("Copy the post link first, then tap Paste."); return; }
-      const urlMatch = raw.match(/https?:\/\/\S+/);
-      const source = urlMatch ? urlMatch[0] : raw;
-      const guessed = (await readLink(source)) || raw.replace(source, "").replace(/https?:\/\/\S+/g, "").trim();
-      btn.textContent = "Paste";
-      if (!guessed) { openModal({ source }); return; }
-      try {
-        const hits = await searchPlaces(guessed);
-        if (hits.length) {
-          const hit = hits[0];
-          const trip = document.getElementById("tripFilter").value === "All" ? "Someday" : document.getElementById("tripFilter").value;
-          state.places.unshift({ id: uid(), name: hit.name, address: hit.address, lat: hit.lat, lng: hit.lng, note: guessed, trip, source, created: Date.now() });
-          save();
-          render();
-          return;
-        }
-      } catch (e) {}
-      openModal({ source, name: guessed });
     };
-    document.getElementById("tripFilter").onchange = render;
     document.getElementById("list").onclick = (e) => {
       const del = e.target.closest("[data-del]");
       if (!del) return;
@@ -228,15 +157,23 @@
       save();
       render();
     };
-    document.getElementById("mapBtn").onclick = showMap;
-    document.getElementById("closeMap").onclick = () => document.getElementById("mapScreen").classList.add("hidden");
-    document.getElementById("routeBtn").onclick = () => {
+    function ensureMap() {
+      if (map) return;
+      map = L.map("map", { zoomControl: false }).setView(home, 11);
+      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "OpenStreetMap", maxZoom: 19 }).addTo(map);
+      layer = L.layerGroup().addTo(map);
+    }
+    document.getElementById("mapBtn").onclick = () => {
       const items = visible();
-      if (!items.length) { alert("Add a place first."); return; }
-      const last = items[items.length - 1];
-      const stops = items.slice(0, -1).map(p => p.lat + "," + p.lng).join("+to:");
-      location.href = "https://maps.apple.com/?saddr=Current+Location&daddr=" + (stops ? stops + "+to:" : "") + last.lat + "," + last.lng + "&dirflg=d";
+      document.getElementById("mapScreen").classList.remove("hidden");
+      ensureMap();
+      setTimeout(() => map.invalidateSize(), 50);
+      layer.clearLayers();
+      items.forEach(p => L.circleMarker([p.lat, p.lng], { radius: 8, color: "#e2a54a", fillColor: "#e2a54a", fillOpacity: 0.95 }).bindPopup(escapeHtml(p.name)).addTo(layer));
+      if (items.length) map.fitBounds(L.latLngBounds(items.map(p => [p.lat, p.lng])).pad(0.3));
     };
+    document.getElementById("closeMap").onclick = () => document.getElementById("mapScreen").classList.add("hidden");
+    document.getElementById("tripFilter").onchange = render;
     render();
   </script>
 </body>

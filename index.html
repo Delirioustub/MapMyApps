@@ -116,7 +116,7 @@
         "<div class=\"muted\">" + escapeHtml(p.trip || "Someday") + "</div><div class=\"meta\">" +
         (p.source ? "<a class=\"btn\" href=\"" + p.source + "\" target=\"_blank\" rel=\"noopener\">Post</a>" : "") +
         "<a class=\"btn\" href=\"" + navUrl(p) + "\">Go</a><button data-del=\"" + p.id + "\">Remove</button></div></article>"
-      ).join("") || "<p class=\"muted\">Copy a post link, then tap Paste. The list is the app. Map is only for looking.</p>";
+      ).join("") || "<p class=\"muted\">Copy a post link, then tap Paste.</p>";
     }
     async function searchPlaces(q) {
       const res = await fetch("https://photon.komoot.io/api/?q=" + encodeURIComponent(q) + "&limit=5");
@@ -186,14 +186,39 @@
     });
     document.getElementById("closeModal").onclick = () => document.getElementById("modal").classList.add("hidden");
     document.getElementById("addBtn").onclick = () => openModal({});
+    async function readLink(url) {
+      const clean = (s) => String(s || "").replace(/https?:\S+/g, " ").replace(/[#@][\w.]+/g, " ").replace(/\s+/g, " ").trim();
+      try {
+        const res = await fetch("https://api.microlink.io/?url=" + encodeURIComponent(url));
+        const data = await res.json();
+        const title = clean(data.data && (data.data.title || data.data.description));
+        if (title) return title.split("|")[0].split(" - ")[0].slice(0, 80);
+      } catch (e) {}
+      return "";
+    }
     document.getElementById("pasteBtn").onclick = async () => {
+      const btn = document.getElementById("pasteBtn");
+      btn.textContent = "Reading";
       let raw = "";
       try { raw = await navigator.clipboard.readText(); } catch (e) { raw = ""; }
-      if (!raw) { alert("Copy the post link first, then tap Paste."); return; }
+      if (!raw) { btn.textContent = "Paste"; alert("Copy the post link first, then tap Paste."); return; }
       const urlMatch = raw.match(/https?:\/\/\S+/);
       const source = urlMatch ? urlMatch[0] : raw;
-      const name = raw.replace(source, "").replace(/https?:\/\/\S+/g, "").trim();
-      openModal({ source, name });
+      const guessed = (await readLink(source)) || raw.replace(source, "").replace(/https?:\/\/\S+/g, "").trim();
+      btn.textContent = "Paste";
+      if (!guessed) { openModal({ source }); return; }
+      try {
+        const hits = await searchPlaces(guessed);
+        if (hits.length) {
+          const hit = hits[0];
+          const trip = document.getElementById("tripFilter").value === "All" ? "Someday" : document.getElementById("tripFilter").value;
+          state.places.unshift({ id: uid(), name: hit.name, address: hit.address, lat: hit.lat, lng: hit.lng, note: guessed, trip, source, created: Date.now() });
+          save();
+          render();
+          return;
+        }
+      } catch (e) {}
+      openModal({ source, name: guessed });
     };
     document.getElementById("tripFilter").onchange = render;
     document.getElementById("list").onclick = (e) => {

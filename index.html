@@ -32,6 +32,9 @@
     .hidden { display:none !important; }
       .mapbar { display:flex; gap:8px; flex-wrap:wrap; right:12px; }
     .stop { background:#e2a54a; color:#111; border-radius:50%; width:26px; height:26px; line-height:26px; text-align:center; font-weight:700; border:2px solid #111; }
+      .ask { background:#2d3224; border:2px solid #e2a54a; border-radius:14px; padding:12px; display:grid; gap:10px; }
+    .ask p { margin:0; font-size:1.05em; }
+    .ask input { font:inherit; font-size:18px; padding:12px; border-radius:10px; border:1px solid var(--line); background:#1b1e17; color:var(--text); }
   </style>
 </head>
 <body>
@@ -105,18 +108,38 @@
       ).join("");
     }
     function junk(s) {
-      return /instagram|facebook|pinterest|reel|pin on|watch on/i.test(s) && s.length < 40;
+      return /^(instagram|facebook|pinterest|tiktok|reels?|pin on|watch on|link in bio|follow|save this|tag a friend|repost)\b/i.test(s) || s.length < 3;
+    }
+    function tidy(s) {
+      return s.replace(/https?:\/\/\S+/g, " ").replace(/\p{Extended_Pictographic}|[\u{1F1E6}-\u{1F1FF}\u{FE0F}\u{200D}]/gu, " ")
+        .replace(/[#@][\w.]+/g, " ").replace(/[“”"*_~|•·]+/g, " ").replace(/\s+/g, " ").replace(/^[\s,.:;!-]+|[\s,.:;!-]+$/g, "").trim();
+    }
+    function splitTag(t) {
+      return t.replace(/[._]+/g, " ").replace(/([a-z])([A-Z])/g, "$1 $2").replace(/\b(nyc|atl|la)\b/gi, m => m.toUpperCase()).trim();
     }
     function queries(text) {
       const url = (text.match(/https?:\/\/\S+/) || [""])[0];
-      const words = text.replace(/https?:\/\/\S+/g, " ").replace(/[@#][\w.]+/g, " ");
-      const bits = words.split(/[\n.!?|]/).map(s => s.replace(/\s+/g, " ").trim()).filter(s => s.length > 2 && s.length < 80 && !junk(s));
-      const ranked = bits.sort((a, b) => b.length - a.length).slice(0, 3);
-      if (!ranked.length && words.trim() && !junk(words)) ranked.push(words.trim().slice(0, 80));
-      return { url, ranked };
+      const out = [];
+      const add = q => { q = tidy(q); if (q.length > 2 && q.length < 90 && !junk(q) && !out.some(o => o.toLowerCase() === q.toLowerCase())) out.push(q); };
+      for (const m of text.matchAll(/(?:📍|📌|🗺️?|location:|address:)\s*([^\n#!?]+)/giu)) add(m[1]);
+      const flat = text.replace(/https?:\/\/\S+/g, " ").replace(/\s+/g, " ");
+      for (const m of flat.matchAll(/\b(?:at|@|visited|from|inside)\s+((?:the\s)?[A-Z][\w'’&.-]*(?:\s+(?:[A-Z0-9][\w'’&.-]*|of|de|la|the|and|&)){0,5})(?:\s*(?:in|,)\s*([A-Z][\w'’.-]*(?:\s+[A-Z][\w'’.-]*){0,2}))?/g)) add(m[2] ? m[1] + " " + m[2] : m[1]);
+      for (const m of flat.matchAll(/\b([A-Z][\w'’&.-]*(?:\s+[A-Z0-9][\w'’&.-]*){0,4})\s*(?:in|,)\s*([A-Z][\w'’.-]*(?:\s+[A-Z][\w'’.-]*){0,2})/g)) add(m[1] + " " + m[2]);
+      text.split(/\n+/).forEach(line => { const t = tidy(line); if (t.length < 60) add(t); else t.split(/[.!?]+/).forEach(add); });
+      const tags = [...text.matchAll(/#([A-Z][a-z]{3,}(?:[A-Z][a-z]+)?)\b/g)].map(m => splitTag(m[1]));
+      if (tags.length) out.slice(0, 2).filter(q => q.length < 40).reverse().forEach(q => { const c = q + " " + tags[0]; if (!out.includes(c)) out.unshift(c); });
+      for (const m of text.matchAll(/@([\w.]{3,})/g)) if (!/\d{3}/.test(m[1])) add(splitTag(m[1]));
+      for (const m of text.matchAll(/#(\w{4,})/g)) if (/[A-Z].*[A-Z]|_/.test(m[1])) add(splitTag(m[1]));
+      return { url, ranked: out.slice(0, 6) };
     }
-    async function searchPlaces(q) {
-      const res = await fetch("https://photon.komoot.io/api/?q=" + encodeURIComponent(q) + "&limit=3");
+    function withTimeout(url, ms) {
+      const c = new AbortController();
+      const t = setTimeout(() => c.abort(), ms);
+      return fetch(url, { signal: c.signal }).finally(() => clearTimeout(t));
+    }
+    async function photon(q) {
+      const res = await withTimeout("https://photon.komoot.io/api/?q=" + encodeURIComponent(q) + "&limit=4", 12000);
+      if (!res.ok) throw new Error("photon " + res.status);
       const data = await res.json();
       return (data.features || []).map(f => ({
         name: f.properties.name || q,
@@ -124,6 +147,41 @@
         lat: f.geometry.coordinates[1],
         lng: f.geometry.coordinates[0]
       }));
+    }
+    async function nominatim(q) {
+      const res = await withTimeout("https://nominatim.openstreetmap.org/search?format=jsonv2&limit=3&q=" + encodeURIComponent(q), 9000);
+      if (!res.ok) throw new Error("nominatim " + res.status);
+      return (await res.json()).map(r => ({ name: r.name || r.display_name.split(",")[0], address: r.display_name.split(",").slice(1, 4).join(",").trim(), lat: +r.lat, lng: +r.lon }));
+    }
+    async function searchPlaces(qs) {
+      let failures = 0, nomOk = false;
+      const lists = await Promise.all(qs.map(q => photon(q).catch(() => { failures++; return []; })));
+      let found = lists.flat();
+      if (!found.length) {
+        for (const q of qs.slice(0, 2)) {
+          try { found = found.concat(await nominatim(q)); nomOk = true; } catch (e) {}
+          if (found.length) break;
+          await new Promise(r => setTimeout(r, 1100));
+        }
+      }
+      return { found, offline: !found.length && failures >= qs.length && !nomOk };
+    }
+    async function postText(url) {
+      if (!/tiktok\.com/i.test(url)) return "";
+      try {
+        const res = await withTimeout("https://www.tiktok.com/oembed?url=" + encodeURIComponent(url), 7000);
+        const d = await res.json();
+        return [d.title, d.author_name].filter(Boolean).join("\n");
+      } catch (e) { return ""; }
+    }
+    function askName(box, link, msg) {
+      box.innerHTML = "<div class=\"ask\"><p>" + msg + "</p><input id=\"placeName\" type=\"search\" enterkeyhint=\"search\" autocomplete=\"off\" placeholder=\"Place name and city, e.g. Joe's Pizza New York\"><button id=\"askGo\" class=\"primary\" type=\"button\">Find it</button></div>";
+      const inp = document.getElementById("placeName");
+      const go = () => { const v = inp.value.trim(); if (!v) return inp.focus(); document.getElementById("blob").value = v + (link ? "\n" + link : ""); find(); };
+      document.getElementById("askGo").onclick = go;
+      inp.onkeydown = e => { if (e.key === "Enter") go(); };
+      inp.focus();
+      box.scrollIntoView({ block: "start" });
     }
     function urlHint(u) {
       let x; try { x = new URL(u); } catch { return null; }
@@ -141,25 +199,40 @@
     async function find() {
       const box = document.getElementById("hits");
       const raw = document.getElementById("blob").value.trim();
-      if (!raw) { box.innerHTML = "<p class=\"muted\">Paste the caption first.</p>"; return; }
-      box.innerHTML = "<p class=\"muted\">Looking</p>";
+      if (!raw) { askName(box, "", "Type the place name to find it."); return; }
+      box.innerHTML = "<p class=\"muted\">Looking…</p>";
       const parsed = queries(raw);
       let found = [];
-      const onlyLink = parsed.url && !parsed.ranked.length;
-      if (onlyLink) {
+      if (parsed.url && !parsed.ranked.length) {
         const h = urlHint(parsed.url);
         if (h && h.coords) found.push({ name: h.name, address: h.coords.lat.toFixed(5) + ", " + h.coords.lng.toFixed(5), lat: h.coords.lat, lng: h.coords.lng });
         else if (h && h.text) parsed.ranked.push(h.text);
+        else {
+          const extra = await postText(parsed.url);
+          if (extra) parsed.ranked = queries(extra).ranked;
+        }
       }
-      for (const q of parsed.ranked) {
-        try { found = found.concat(await searchPlaces(q)); } catch (e) {}
+      if (!found.length && !parsed.ranked.length) {
+        const site = (parsed.url.match(/instagram|facebook|fb\.|tiktok|pinterest|pin\.it|threads|x\.com|twitter/i) || [""])[0];
+        askName(box, parsed.url, (site ? "That post's link doesn't say where it is" : "I couldn't find a place in that") + ". Type the place name (and city if you know it):");
+        return;
       }
+      let offline = false;
+      if (!found.length) ({ found, offline } = await searchPlaces(parsed.ranked));
+      const low = raw.toLowerCase();
+      const score = h => { const w = (h.name || "").toLowerCase().split(/\W+/).filter(x => x.length > 2); const nameHit = w.length ? w.filter(x => low.includes(x)).length / w.length : 0; return nameHit * 2 + (h.address.split(", ").some(a => a.length > 2 && low.includes(a.toLowerCase())) ? 1 : 0); };
+      found = found.map((h, i) => ({ h, i, s: score(h) })).sort((a, b) => b.s - a.s || a.i - b.i).map(x => x.h);
       const seen = new Set();
-      found = found.filter(h => { const k = h.name + h.address; if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, 5);
-      if (!found.length) { box.innerHTML = "<p class=\"muted\">" + (onlyLink ? "Got the link, but it doesn't say where. Type the place name below the link and tap Find place." : "No place in that text. Paste the line that names it.") + "</p>"; document.getElementById("blob").focus(); return; }
+      found = found.filter(h => { const k = h.name + h.address; if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, 6);
+      if (!found.length) {
+        askName(box, parsed.url, offline ? "Couldn't reach the map search. Check your internet connection and try again." : "No match for \"" + escapeHtml(parsed.ranked[0]) + "\". Type the place name (and city):");
+        return;
+      }
       box._hits = found;
       box._source = parsed.url;
-      box.innerHTML = found.map((h, i) => "<button class=\"hit\" type=\"button\" data-hit=\"" + i + "\"><h2>" + escapeHtml(h.name) + "</h2><div class=\"muted\">" + escapeHtml(h.address) + "</div><div class=\"muted\">Tap to save</div></button>").join("");
+      box.innerHTML = found.map((h, i) => "<button class=\"hit\" type=\"button\" data-hit=\"" + i + "\"><h2>" + escapeHtml(h.name) + "</h2><div class=\"muted\">" + escapeHtml(h.address) + "</div><div class=\"muted\">Tap to save</div></button>").join("") +
+        "<button id=\"notIt\" type=\"button\">None of these</button>";
+      document.getElementById("notIt").onclick = () => askName(box, parsed.url, "Type the place name (and city):");
     }
     document.getElementById("findBtn").onclick = find;
     document.getElementById("hits").onclick = (e) => {

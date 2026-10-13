@@ -20,4 +20,4 @@ Share it with someone else: in Shortcuts, long press MapMyApps, tap Share, then 
 
 Using it: on a post, tap Share, then MapMyApps (scroll the app row or tap More the first time). The app opens and searches automatically. Tap the right place to save it. If only a link came through and no place is found, type the place name and tap Find place. Go opens Apple Maps directions.
 
-Route on a list previews the drive, then opens Apple Maps through the stops.
+Route appears when the selected list has two or more places. It shows the stops numbered in order on the map (starting from the newest saved place, then always the nearest next stop), with buttons to open the whole trip in Apple Maps or Google Maps.

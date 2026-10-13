@@ -166,6 +166,178 @@
       }
       return { found, offline: !found.length && failures >= qs.length && !nomOk };
     }
+    const CITY_ABBR = { la: "Los Angeles", dtla: "Los Angeles", nyc: "New York", ny: "New York", sf: "San Francisco", atl: "Atlanta", chi: "Chicago", chitown: "Chicago", dc: "Washington DC", nola: "New Orleans", phx: "Phoenix", oc: "Orange County", sd: "San Diego", lv: "Las Vegas", vegas: "Las Vegas", philly: "Philadelphia", avl: "Asheville", clt: "Charlotte", atx: "Austin", htx: "Houston", pdx: "Portland", sea: "Seattle", bos: "Boston", mia: "Miami", nash: "Nashville", chs: "Charleston", sav: "Savannah", ldn: "London", hk: "Hong Kong", bkk: "Bangkok", cdmx: "Mexico City" };
+    const CITY_TAGS = { losangeles: "Los Angeles", newyork: "New York", newyorkcity: "New York", sanfrancisco: "San Francisco", chicago: "Chicago", atlanta: "Atlanta", miami: "Miami", seattle: "Seattle", boston: "Boston", austin: "Austin", houston: "Houston", dallas: "Dallas", nashville: "Nashville", charleston: "Charleston", charlotte: "Charlotte", asheville: "Asheville", savannah: "Savannah", neworleans: "New Orleans", sandiego: "San Diego", lasvegas: "Las Vegas", portland: "Portland", denver: "Denver", phoenix: "Phoenix", paris: "Paris", london: "London", rome: "Rome", tokyo: "Tokyo", barcelona: "Barcelona", lisbon: "Lisbon", hongkong: "Hong Kong", toronto: "Toronto" };
+    const sq = s => String(s || "").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z0-9]/g, "");
+    const STREET = "(?:St|Street|Ave|Avenue|Blvd|Boulevard|Rd|Road|Dr|Drive|Way|Ln|Lane|Pl|Place|Ct|Court|Hwy|Highway|Pkwy|Parkway|Sq|Square|Ter|Terrace|Cir)";
+    function findCities(text) {
+      const out = [];
+      const add = (c, w) => { c = c.trim(); if (c && !out.some(o => sq(o.name) === sq(c))) out.push({ name: c, w }); };
+      for (const m of text.matchAll(/\b([A-Z][a-zA-Z.'-]+(?: [A-Z][a-zA-Z.'-]+){0,2}),\s*([A-Z]{2})\b(?:\s*\d{5})?/g)) if (!/\d/.test(m[1])) add(m[1] + ", " + m[2], 5);
+      for (const m of text.matchAll(/\b\d{5}\s+([A-Z][a-zA-ZÀ-ÿ'-]+(?: [A-Z][a-zA-ZÀ-ÿ'-]+)?)/g)) add(m[1], 5);
+      for (const m of text.matchAll(/\b(?:[Ii]n|IN|[Tt]o|TO|à|en)\s+((?:[A-Z][a-zA-ZÀ-ÿ'.-]+)(?: [A-Z][a-zA-ZÀ-ÿ'.-]+){0,2})/g)) {
+        const c = m[1]; if (/^[A-Z]{2,5}$/.test(c) && CITY_ABBR[c.toLowerCase()]) add(CITY_ABBR[c.toLowerCase()], 4); else if (/^[A-Z][a-zà-ÿ]/.test(c)) add(c, 4);
+      }
+      for (const m of text.matchAll(/\b([A-Z]{2,5})\b/g)) if (CITY_ABBR[m[1].toLowerCase()] && m[1] !== "SEA" && m[1] !== "NASH") add(CITY_ABBR[m[1].toLowerCase()], 3);
+      for (const m of text.matchAll(/#(\w+)/g)) {
+        const t = m[1].toLowerCase();
+        for (const [k, v] of Object.entries({ ...CITY_TAGS, ...CITY_ABBR })) if (t === k || (t.startsWith(k) && /^(eats?|food|foodie|foodies|restaurants?|travel|life|living|brunch|coffee|bars?|eats|dining|things|tok)$/.test(t.slice(k.length)))) add(v, 2);
+      }
+      return out.sort((a, b) => b.w - a.w);
+    }
+    function findAddresses(text) {
+      const out = [];
+      const lines = text.split(/\n/);
+      lines.forEach((line, i) => {
+        const l = line.replace(/\p{Extended_Pictographic}|\u{FE0F}/gu, " ");
+        let m = l.match(new RegExp("\\b(\\d{1,6}[A-Za-z]?\\s+(?:[NSEW]\\.?\\s+)?(?:[A-Z0-9][\\w.'-]*\\s+){0,4}" + STREET + "\\b\\.?(?:[^\\n]*)?)"));
+        if (!m) m = l.match(/\b(\d{1,4}(?:\s?bis)?,?\s+(?:rue|avenue|av\.|boulevard|bd|place|quai|calle|via|carrer|rua)\s+[^\n,]+(?:,?\s*\d{4,5}\s+[A-ZÀ-ÿ][^\n,]*)?)/i);
+        if (!m) return;
+        let addr = m[1].replace(/,?\s*(?:Floor|Fl|Suite|Ste|Unit|#)\s*[\w-]+/gi, "").replace(/@[\w.]+|#\w+/g, "").trim();
+        const next = (lines[i + 1] || "").trim();
+        if (!/,\s*[A-Z][a-z]/.test(addr) && /^[A-Z][\w .'-]+,\s*[A-Z]{2}\b/.test(next)) addr += ", " + next;
+        let label = "";
+        const before = l.slice(0, m.index).replace(/[📍📌:•,\s]+$/u, "").replace(/^[\s📍📌:•]+/u, "").trim();
+        if (before && before.length < 50) label = before;
+        else for (let j = i - 1; j >= Math.max(0, i - 2); j--) { const pm = lines[j].match(/(?:📍|📌)\s*:?\s*([^\n@#]+)/u); if (pm) { label = pm[1].trim(); break; } }
+        out.push({ q: addr.replace(/\s+/g, " "), label: tidy(label) });
+      });
+      return out;
+    }
+    function handleName(h, text) {
+      let core = h.toLowerCase().replace(/[._]+/g, " ").trim();
+      const strip = w => w.replace(/^(eat|eats|the|visit|its|official)\s*/, "").replace(/\s*(la|nyc|sf|usa|us|official|restaurant|hq|eats|cafe|\d+)$/, "").trim();
+      const words = core.split(" ");
+      const cityish = new Set(Object.keys(CITY_ABBR).concat(Object.keys(CITY_TAGS)));
+      while (words.length > 1 && (cityish.has(words[words.length - 1]) || /^(usa|us|official|\d+)$/.test(words[words.length - 1]) || text.toLowerCase().includes(words[words.length - 1] + ",") )) words.pop();
+      core = words.join(" ");
+      const targets = [sq(core), sq(strip(core)), sq(strip(strip(core)))].filter(t => t.length >= 4);
+      const toks = text.replace(/[@#][\w.]+/g, " ").match(/[\p{L}\p{N}'’&]+/gu) || [];
+      for (let n = 4; n >= 1; n--) for (let i = 0; i + n <= toks.length; i++) {
+        const phrase = toks.slice(i, i + n).join(" ");
+        if (targets.includes(sq(phrase)) && /\p{Lu}/u.test(phrase[0])) return phrase;
+      }
+      return words.length > 1 ? core.replace(/\b\w/g, c => c.toUpperCase()) : (strip(core) || core);
+    }
+    function findNames(text) {
+      const out = [];
+      const add = (q, w, area) => { q = tidy(q).replace(/^[:\-\s]+/, ""); if (q.length > 2 && q.length < 60 && !junk(q) && !out.some(o => sq(o.q) === sq(q))) out.push({ q, w, area: area || "" }); };
+      const pins = [...text.matchAll(/(?:📍|📌)\s*:?\s*([^\n]+)/gu)].map(m => m[1]);
+      pins.forEach(p => {
+        const hm = p.match(/@([\w.]{3,})/);
+        let body = p.replace(/@[\w.]+|#\w+/g, " ").replace(/\p{Extended_Pictographic}|\u{FE0F}/gu, " ").trim();
+        if (new RegExp("\\d+\\s+\\S+.*" + STREET + "\\b|\\d{5}").test(body)) body = body.split(",")[0];
+        const parts = body.split(/,|\s[-–—]\s/).map(s => s.trim()).filter(Boolean);
+        if (parts[0] && parts[0].length > 2) add(parts[0].replace(/\s+[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]+$/u, ""), 3, parts.slice(1).join(" ").replace(/\(.*?\)/g, "").trim());
+        else if (hm) add(handleName(hm[1], text), 3);
+      });
+      const pinCount = out.length;
+      for (const m of text.matchAll(/(^|[^\w])@([\w.]{3,})/g)) {
+        const before = text.slice(Math.max(0, m.index - 14), m.index + m[1].length).toLowerCase();
+        if (/(follow|chef|by|photo|📸|credit|thanks|with|et)\s*$/.test(before)) continue;
+        add(handleName(m[2], text), 2.5);
+      }
+      for (const m of text.matchAll(/\b(?:at|chez|visited|inside|to)\s+((?:[A-Z][\w'’&.-]*)(?:\s+(?:[A-Z0-9][\w'’&.-]*|of|de|la|the|and|&)){0,4})/g)) if (!CITY_ABBR[m[1].toLowerCase()]) add(m[1], 2);
+      for (const m of text.matchAll(/^\s*([A-Z][\w'’&.-]*(?:\s+[A-Z0-9][\w'’&.-]*){0,4})\s*!/gm)) add(m[1], 2);
+      queries(text).ranked.forEach(q => add(q, 1));
+      return { names: out, pinCount };
+    }
+    function km(a, b) {
+      const R = 6371, d1 = (b.lat - a.lat) * Math.PI / 180, d2 = (b.lng - a.lng) * Math.PI / 180;
+      const x = Math.sin(d1 / 2) ** 2 + Math.cos(a.lat * Math.PI / 180) * Math.cos(b.lat * Math.PI / 180) * Math.sin(d2 / 2) ** 2;
+      return 2 * R * Math.asin(Math.sqrt(x));
+    }
+    async function photonAt(q, center, extra) {
+      const res = await withTimeout("https://photon.komoot.io/api/?q=" + encodeURIComponent(q) + "&limit=" + (extra ? 1 : 5) + (center ? "&lat=" + center.lat + "&lon=" + center.lng : "") + (extra || ""), 12000);
+      if (!res.ok) throw new Error("photon " + res.status);
+      const data = await res.json();
+      return (data.features || []).map(f => ({
+        name: f.properties.name || [f.properties.housenumber, f.properties.street].filter(Boolean).join(" ") || q,
+        address: [[f.properties.housenumber, f.properties.street].filter(Boolean).join(" "), f.properties.city || f.properties.district, f.properties.state, f.properties.country].filter(Boolean).join(", "),
+        lat: f.geometry.coordinates[1], lng: f.geometry.coordinates[0], kind: f.properties.osm_key
+      }));
+    }
+    async function cityCenter(cities) {
+      const geo = async (c, near) => { try { const r = await photonAt(c.name.replace(/[.!]+$/, ""), near, "&osm_tag=place"); return r[0] && nameMatch(r[0].name, c.name.replace(/,\s*[A-Z]{2}$/, "")) >= 0.7 ? { ...r[0], label: c.name } : null; } catch (e) { return null; } };
+      const list = cities.slice(0, 3);
+      const firsts = await Promise.all(list.map(c => geo(c)));
+      const i = firsts.findIndex(Boolean);
+      if (i < 0) return null;
+      const bi = list.findIndex((c, k) => k > i && firsts[k] && c.w < list[i].w);
+      const broad = bi > 0 ? firsts[bi] : null;
+      if (list[i].w === 4 && broad && km(firsts[i], broad) > 150) {
+        const again = await geo(list[i], broad);
+        return again && km(again, broad) < 80 ? again : broad;
+      }
+      return firsts[i];
+    }
+    function nameMatch(hitName, q) {
+      const a = sq(hitName), b = sq(q);
+      if (!a || !b) return 0;
+      if (a === b) return 1;
+      if (a.includes(b) || b.includes(a)) return 0.8;
+      const wa = new Set(String(hitName).toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(w => w.length > 2));
+      const wb = String(q).toLowerCase().split(/[^\p{L}\p{N}]+/u).filter(w => w.length > 2);
+      return wb.length ? wb.filter(w => wa.has(w)).length / Math.max(wb.length, wa.size) * 0.7 : 0;
+    }
+    async function locate(text) {
+      const cities = findCities(text);
+      const addrs = findAddresses(text).slice(0, 2);
+      const { names, pinCount } = findNames(text);
+      if (!addrs.length && !names.length) return { found: [], offline: false, empty: true };
+      const center = cities.length ? await cityCenter(cities) : null;
+      const cityName = center ? center.label.replace(/,\s*[A-Z]{2}$/, "") : "";
+      let calls = 0, fails = 0;
+      const multi = pinCount >= 3;
+      const jobs = [];
+      const pick = multi ? names.filter(n => n.w === 3).slice(0, 8) : names.slice(0, 4);
+      pick.forEach((n, i) => {
+        const qs = multi ? [n.q + " " + (n.area || cityName)] : [n.q, cityName && !sq(n.q).includes(sq(cityName)) ? n.q + " " + cityName : ""];
+        qs.filter(Boolean).forEach(q => jobs.push(photonAt(q.trim(), center).then(r => r.map(h => ({ ...h, from: n, order: i }))).catch(() => { fails++; return []; }).finally(() => calls++)));
+      });
+      const lists = await Promise.all(jobs);
+      let hits = [];
+      for (const [i, a] of addrs.entries()) {
+        if (i) await new Promise(r => setTimeout(r, 1100));
+        const q = a.q + (cityName && !a.q.toLowerCase().includes(cityName.toLowerCase()) && !/,\s*[A-Z]{2}\b|\d{5}/.test(a.q) ? ", " + cityName : "");
+        try {
+          calls++;
+          let r = await nominatim(q);
+          if (!r.length) r = await nominatim(q.replace(/^(\d+)\s+[NSEW]\.?\s+/, "$1 "));
+          r.slice(0, 1).forEach(h => hits.push({ name: a.label || a.q.split(",")[0], address: a.q, lat: h.lat, lng: h.lng, score: 6 + (center && km(center, h) < 40 ? 1 : 0), label: a.label }));
+        } catch (e) { fails++; }
+      }
+      for (const list of lists) for (const h of list) {
+        const n = h.from;
+        let s = n.w + nameMatch(h.name, n.q) * 4 - h.order * 0.15;
+        if (center) { const d = km(center, h); s += d < 25 ? 2 : d < 80 ? 1.2 : d < 300 ? 0 : -2.5; }
+        if (h.kind === "place" || h.kind === "boundary" || h.kind === "highway") s -= 3;
+        if (nameMatch(h.name, cityName) > 0.7) s -= 2;
+        hits.push({ name: h.name, address: h.address, lat: h.lat, lng: h.lng, score: s, label: multi ? n.q : "" });
+      }
+      if (!multi) {
+        const top = Math.max(-9, ...hits.map(h => h.score));
+        if (top < 6) for (const n of pick.slice(0, 2)) {
+          await new Promise(r => setTimeout(r, 1100));
+          try {
+            calls++;
+            const r = await nominatim(n.q + (cityName ? ", " + cityName : ""));
+            r.forEach(h => hits.push({ ...h, score: n.w + nameMatch(h.name, n.q) * 4 + (center && km(center, h) < 80 ? 1.5 : 0), label: "" }));
+          } catch (e) { fails++; }
+        }
+      }
+      // a labeled address pin and a named search hit for the same place: keep one
+      hits.sort((a, b) => b.score - a.score);
+      const seen = [];
+      hits = hits.filter(h => { if (seen.some(o => km(o, h) < 0.05 && (sq(o.name) === sq(h.name) || nameMatch(o.name, h.name) > 0.6))) return false; seen.push(h); return true; });
+      if (multi) {
+        const best = [];
+        pick.forEach(n => { const h = hits.find(x => x.label === n.q && x.score > 5); if (h) best.push(h); });
+        hits.filter(h => !h.label || !pick.some(n => n.q === h.label)).slice(0, 2).forEach(h => best.push(h));
+        return { found: best.slice(0, 10), offline: calls > 0 && fails >= calls, multi: true, city: cityName };
+      }
+      return { found: hits.slice(0, 6), offline: calls > 0 && fails >= calls, city: cityName };
+    }
     async function postText(url) {
       if (!/tiktok\.com/i.test(url)) return "";
       try {
@@ -202,35 +374,31 @@
       if (!raw) { askName(box, "", "Type the place name to find it."); return; }
       box.innerHTML = "<p class=\"muted\">Looking…</p>";
       const parsed = queries(raw);
-      let found = [];
+      let found = [], searchText = raw, multi = false, offline = false;
       if (parsed.url && !parsed.ranked.length) {
         const h = urlHint(parsed.url);
         if (h && h.coords) found.push({ name: h.name, address: h.coords.lat.toFixed(5) + ", " + h.coords.lng.toFixed(5), lat: h.coords.lat, lng: h.coords.lng });
-        else if (h && h.text) parsed.ranked.push(h.text);
-        else {
-          const extra = await postText(parsed.url);
-          if (extra) parsed.ranked = queries(extra).ranked;
-        }
+        else if (h && h.text) searchText = h.text;
+        else searchText = await postText(parsed.url);
       }
-      if (!found.length && !parsed.ranked.length) {
+      if (!found.length && searchText) {
+        const r = await locate(searchText);
+        found = r.found; offline = r.offline; multi = !!r.multi;
+        if (r.empty) searchText = "";
+      }
+      if (!found.length && !searchText) {
         const site = (parsed.url.match(/instagram|facebook|fb\.|tiktok|pinterest|pin\.it|threads|x\.com|twitter/i) || [""])[0];
         askName(box, parsed.url, (site ? "That post's link doesn't say where it is" : "I couldn't find a place in that") + ". Type the place name (and city if you know it):");
         return;
       }
-      let offline = false;
-      if (!found.length) ({ found, offline } = await searchPlaces(parsed.ranked));
-      const low = raw.toLowerCase();
-      const score = h => { const w = (h.name || "").toLowerCase().split(/\W+/).filter(x => x.length > 2); const nameHit = w.length ? w.filter(x => low.includes(x)).length / w.length : 0; return nameHit * 2 + (h.address.split(", ").some(a => a.length > 2 && low.includes(a.toLowerCase())) ? 1 : 0); };
-      found = found.map((h, i) => ({ h, i, s: score(h) })).sort((a, b) => b.s - a.s || a.i - b.i).map(x => x.h);
-      const seen = new Set();
-      found = found.filter(h => { const k = h.name + h.address; if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, 6);
       if (!found.length) {
-        askName(box, parsed.url, offline ? "Couldn't reach the map search. Check your internet connection and try again." : "No match for \"" + escapeHtml(parsed.ranked[0]) + "\". Type the place name (and city):");
+        askName(box, parsed.url, offline ? "Couldn't reach the map search. Check your internet connection and try again." : "I couldn't match a place from that. Type the place name (and city):");
         return;
       }
       box._hits = found;
+      box._multi = multi;
       box._source = parsed.url;
-      box.innerHTML = found.map((h, i) => "<button class=\"hit\" type=\"button\" data-hit=\"" + i + "\"><h2>" + escapeHtml(h.name) + "</h2><div class=\"muted\">" + escapeHtml(h.address) + "</div><div class=\"muted\">Tap to save</div></button>").join("") +
+      box.innerHTML = (multi ? "<p class=\"muted\">This post names several places. Tap each one you want to save.</p>" : "") + found.map((h, i) => "<button class=\"hit\" type=\"button\" data-hit=\"" + i + "\">" + (multi && h.label ? "<div class=\"muted\">📍 " + escapeHtml(h.label) + "</div>" : "") + "<h2>" + escapeHtml(h.name) + "</h2><div class=\"muted\">" + escapeHtml(h.address) + "</div><div class=\"muted\">Tap to save</div></button>").join("") +
         "<button id=\"notIt\" type=\"button\">None of these</button>";
       document.getElementById("notIt").onclick = () => askName(box, parsed.url, "Type the place name (and city):");
     }
@@ -242,6 +410,7 @@
       const trip = document.getElementById("tripFilter").value || "Someday";
       state.places.unshift({ id: uid(), name: hit.name, address: hit.address, lat: hit.lat, lng: hit.lng, note: "", trip, source: document.getElementById("hits")._source || "", created: Date.now() });
       save();
+      if (document.getElementById("hits")._multi) { btn.disabled = true; btn.querySelector(".muted:last-child").textContent = "Saved ✓"; render(); return; }
       document.getElementById("blob").value = "";
       document.getElementById("hits").innerHTML = "<p class=\"muted\">Saved " + escapeHtml(hit.name) + "</p>";
       render();

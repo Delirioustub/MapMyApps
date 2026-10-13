@@ -43,7 +43,7 @@
     </div>
   </header>
   <main>
-    <p class="muted">Copy the caption, not just the link. Paste it here. Tap the place.</p>
+    <p class="muted">Share a post to MapMyApps, or paste the caption here. Tap the place to save it.</p>
     <textarea id="blob" placeholder="Paste the caption. Include the place name."></textarea>
     <div class="tools">
       <select id="tripFilter" aria-label="List"></select>
@@ -121,6 +121,19 @@
         lng: f.geometry.coordinates[0]
       }));
     }
+    function urlHint(u) {
+      let x; try { x = new URL(u); } catch { return null; }
+      const all = decodeURIComponent(x.href);
+      const ll = all.match(/@(-?\d{1,2}\.\d+),(-?\d{1,3}\.\d+)/) || all.match(/[?&](?:ll|sll|center|query|q|daddr|destination)=(-?\d{1,2}\.\d+),\s*(-?\d{1,3}\.\d+)/);
+      const qp = x.searchParams.get("q") || x.searchParams.get("query") || x.searchParams.get("address") || x.searchParams.get("name") || x.searchParams.get("daddr") || x.searchParams.get("destination");
+      const place = (x.pathname.match(/\/place\/([^/@]+)/) || [])[1];
+      let name = place ? place.replace(/\+/g, " ") : (qp && !/^-?\d/.test(qp) ? qp : "");
+      if (ll) return { coords: { lat: +ll[1], lng: +ll[2] }, name: name || "Shared map spot" };
+      if (name) return { text: name };
+      if (/instagram|facebook|fb\.|pinterest|pin\.it|tiktok|threads|x\.com|twitter|goo\.gl|maps\.app/i.test(x.hostname)) return null;
+      const slug = x.pathname.split("/").filter(seg => /[a-z]{3,}-[a-z]/i.test(seg)).pop();
+      return slug ? { text: slug.replace(/\.\w+$/, "").replace(/[-_]+/g, " ").replace(/\b\d{4,}\b/g, "").trim() } : null;
+    }
     async function find() {
       const box = document.getElementById("hits");
       const raw = document.getElementById("blob").value.trim();
@@ -128,12 +141,18 @@
       box.innerHTML = "<p class=\"muted\">Looking</p>";
       const parsed = queries(raw);
       let found = [];
+      const onlyLink = parsed.url && !parsed.ranked.length;
+      if (onlyLink) {
+        const h = urlHint(parsed.url);
+        if (h && h.coords) found.push({ name: h.name, address: h.coords.lat.toFixed(5) + ", " + h.coords.lng.toFixed(5), lat: h.coords.lat, lng: h.coords.lng });
+        else if (h && h.text) parsed.ranked.push(h.text);
+      }
       for (const q of parsed.ranked) {
         try { found = found.concat(await searchPlaces(q)); } catch (e) {}
       }
       const seen = new Set();
       found = found.filter(h => { const k = h.name + h.address; if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, 5);
-      if (!found.length) { box.innerHTML = "<p class=\"muted\">No place in that text. Paste the line that names it.</p>"; return; }
+      if (!found.length) { box.innerHTML = "<p class=\"muted\">" + (onlyLink ? "Got the link, but it doesn't say where. Type the place name below the link and tap Find place." : "No place in that text. Paste the line that names it.") + "</p>"; document.getElementById("blob").focus(); return; }
       box._hits = found;
       box._source = parsed.url;
       box.innerHTML = found.map((h, i) => "<button class=\"hit\" type=\"button\" data-hit=\"" + i + "\"><h2>" + escapeHtml(h.name) + "</h2><div class=\"muted\">" + escapeHtml(h.address) + "</div><div class=\"muted\">Tap to save</div></button>").join("");
@@ -175,6 +194,16 @@
     document.getElementById("closeMap").onclick = () => document.getElementById("mapScreen").classList.add("hidden");
     document.getElementById("tripFilter").onchange = render;
     render();
+    (function shared() {
+      const qs = new URLSearchParams(location.search);
+      const parts = [qs.get("add"), qs.get("text"), qs.get("url")].filter(Boolean);
+      if (!parts.length) return;
+      let txt = [...new Set(parts)].join("\n");
+      try { if (/%[0-9a-f]{2}/i.test(txt)) txt = decodeURIComponent(txt); } catch (e) {}
+      history.replaceState(null, "", location.pathname + location.hash);
+      document.getElementById("blob").value = txt.trim();
+      find();
+    })();
   </script>
 </body>
 </html>

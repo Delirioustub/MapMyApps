@@ -28,7 +28,7 @@
     .meta { display:flex; gap:8px; flex-wrap:wrap; margin-top:12px; }
     #mapScreen { position:fixed; inset:0; z-index:20; background:#cfcaba; }
     #map { position:absolute; inset:0; }
-    .mapbar { position:absolute; top:calc(10px + env(safe-area-inset-top)); left:12px; z-index:500; }
+    .mapbar { position:absolute; top:calc(10px + env(safe-area-inset-top)); left:12px; z-index:500; background:rgba(18,20,15,.85); padding:8px; border-radius:14px; backdrop-filter:blur(8px); }
     .hidden { display:none !important; }
       .mapbar { display:flex; gap:8px; flex-wrap:wrap; right:12px; }
     .stop { background:#e2a54a; color:#111; border-radius:50%; width:26px; height:26px; line-height:26px; text-align:center; font-weight:700; border:2px solid #111; }
@@ -422,10 +422,27 @@
       save();
       render();
     };
+    // Drop a Google Maps API key here for official Google tiles.
+    // Leave empty to use the polished free Carto layer (recommended default).
+    const GOOGLE_MAPS_KEY = "";
+
     function ensureMap() {
       if (map) return;
-      map = L.map("map", { zoomControl: false }).setView(home, 11);
-      L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", { attribution: "OpenStreetMap", maxZoom: 19 }).addTo(map);
+      map = L.map("map", { zoomControl: false, zoomSnap: 0.5 }).setView(home, 11);
+      if (GOOGLE_MAPS_KEY) {
+        L.tileLayer("https://{s}.google.com/vt/lyrs=m&x={x}&y={y}&z={z}&key=" + GOOGLE_MAPS_KEY, {
+          maxZoom: 20,
+          subdomains: ["mt0", "mt1", "mt2", "mt3"],
+          attribution: "Google Maps"
+        }).addTo(map);
+      } else {
+        // Clean, modern style — much smoother and less cluttered than raw OSM
+        L.tileLayer("https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png", {
+          attribution: '&copy; OpenStreetMap &copy; CARTO',
+          subdomains: "abcd",
+          maxZoom: 20
+        }).addTo(map);
+      }
       layer = L.layerGroup().addTo(map);
     }
     function order(items) {
@@ -472,7 +489,7 @@
       ensureMap();
       setTimeout(() => map.invalidateSize(), 50);
       layer.clearLayers();
-      items.forEach(p => L.circleMarker([p.lat, p.lng], { radius: 8, color: "#e2a54a", fillColor: "#e2a54a", fillOpacity: 0.95 }).bindPopup(escapeHtml(p.name)).addTo(layer));
+      items.forEach(p => L.circleMarker([p.lat, p.lng], { radius: 9, color: "#1a1408", weight: 2, fillColor: "#e2a54a", fillOpacity: 0.95 }).bindPopup(escapeHtml(p.name)).addTo(layer));
       if (items.length) map.fitBounds(L.latLngBounds(items.map(p => [p.lat, p.lng])).pad(0.3));
     };
     document.getElementById("closeMap").onclick = () => document.getElementById("mapScreen").classList.add("hidden");
@@ -491,3 +508,4 @@
   </script>
 </body>
 </html>
+
